@@ -320,14 +320,14 @@ function DaftarProdukPage() {
         <button
           onClick={() => table.setPageIndex(0)}
           disabled={!table.getCanPreviousPage()}
-          className="p-2 border rounded"
+          className="px-2 py-1 border rounded"
         >
           {"<<"}
         </button>
         <button
           onClick={() => table.previousPage()}
           disabled={!table.getCanPreviousPage()}
-          className="p-2 border rounded"
+          className="px-2 py-1 border rounded"
         >
           {"<"}
         </button>
@@ -341,14 +341,14 @@ function DaftarProdukPage() {
         <button
           onClick={() => table.nextPage()}
           disabled={!table.getCanNextPage()}
-          className="p-2 border rounded"
+          className="px-2 py-1 border rounded"
         >
           {">"}
         </button>
         <button
           onClick={() => table.setPageIndex(table.getPageCount() - 1)}
           disabled={!table.getCanNextPage()}
-          className="p-2 border rounded"
+          className="px-2 py-1 border rounded"
         >
           {">>"}
         </button>

@@ -39,7 +39,7 @@ function HomePage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col md:flex-row">
+    <div className="flex flex-col md:flex-row">
       <div className="w-full md:w-2/3">
         <ProductDataTable onAddToCart={handleAddToCart} />
       </div>
