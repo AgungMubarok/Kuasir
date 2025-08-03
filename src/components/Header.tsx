@@ -112,6 +112,13 @@ export default function Header() {
                   </>
                 )}
                 {/* Menu untuk Semua Role yang Login */}
+                <Link
+                  href="/pengeluaran"
+                  className="block px-4 py-2 text-sm hover:bg-gray-100"
+                  onClick={handleLinkClick}
+                >
+                  Catat Pengeluaran
+                </Link>
                 <button
                   onClick={handleLogout}
                   className="w-full text-left block px-4 py-2 text-sm text-red-600 hover:bg-gray-100"

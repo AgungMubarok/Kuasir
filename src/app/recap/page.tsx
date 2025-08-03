@@ -35,6 +35,12 @@ interface AggregatedProduct {
   totalQuantity: number;
   totalRevenue: number;
 }
+interface Expense {
+  id: string;
+  description: string;
+  amount: number;
+  timestamp: Timestamp;
+}
 
 // --- FUNGSI BANTUAN ---
 const formatDateForInput = (date: Date) => {
@@ -48,55 +54,60 @@ const formatDateForInput = (date: Date) => {
 function RecapPage() {
   // --- STATE ---
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
+  const [allExpenses, setAllExpenses] = useState<Expense[]>([]);
   const [filter, setFilter] = useState<"daily" | "monthly" | "yearly">("daily");
   const [selectedDate, setSelectedDate] = useState(new Date());
 
-  // State untuk melacak baris mana yang sedang diperluas (expanded)
+  // State untuk fitur collapse di tabel transaksi
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
 
   const [{ pageIndex: txPageIndex, pageSize: txPageSize }, setTxPagination] =
-    useState<PaginationState>({
-      pageIndex: 0,
-      pageSize: 5,
-    });
-
+    useState<PaginationState>({ pageIndex: 0, pageSize: 5 });
   const [
     { pageIndex: productPageIndex, pageSize: productPageSize },
     setProductPagination,
-  ] = useState<PaginationState>({
-    pageIndex: 0,
-    pageSize: 10,
-  });
+  ] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 });
+  const [
+    { pageIndex: expensePageIndex, pageSize: expensePageSize },
+    setExpensePagination,
+  ] = useState<PaginationState>({ pageIndex: 0, pageSize: 5 });
 
   // --- FETCH DATA ---
   useEffect(() => {
-    const fetchTransactions = async () => {
-      const querySnapshot = await getDocs(collection(db, "transactions"));
-      const transData = querySnapshot.docs.map(
+    const fetchData = async () => {
+      const [transactionSnapshot, expenseSnapshot] = await Promise.all([
+        getDocs(collection(db, "transactions")),
+        getDocs(collection(db, "expenses")),
+      ]);
+      const transData = transactionSnapshot.docs.map(
         (doc) => ({ id: doc.id, ...doc.data() } as Transaction)
       );
+      const expenseData = expenseSnapshot.docs.map(
+        (doc) => ({ id: doc.id, ...doc.data() } as Expense)
+      );
       setAllTransactions(transData);
+      setAllExpenses(expenseData);
     };
-    fetchTransactions();
+    fetchData();
   }, []);
 
   // --- LOGIKA UTAMA (FILTER & KALKULASI) ---
   const {
     filteredTransactions,
+    filteredExpenses,
     grossProfit,
     totalModal,
+    totalExpenses,
     netProfit,
     cashTotal,
     qrisTotal,
     hutangTotal,
     aggregatedProducts,
   } = useMemo(() => {
-    const filtered = allTransactions.filter((t) => {
-      if (!t.timestamp) return false;
-      const txDate = t.timestamp.toDate();
+    const filterByPeriod = (date: Date) => {
       const now = selectedDate;
       if (filter === "daily") {
-        const businessDate = new Date(txDate.getTime() - 4 * 60 * 60 * 1000);
+        const businessDate = new Date(date.getTime() - 4 * 60 * 60 * 1000);
         const selectedBusinessDate = new Date(
           now.getTime() - 4 * 60 * 60 * 1000
         );
@@ -106,29 +117,38 @@ function RecapPage() {
       }
       if (filter === "monthly") {
         return (
-          txDate.getMonth() === now.getMonth() &&
-          txDate.getFullYear() === now.getFullYear()
+          date.getMonth() === now.getMonth() &&
+          date.getFullYear() === now.getFullYear()
         );
       }
       if (filter === "yearly") {
-        return txDate.getFullYear() === now.getFullYear();
+        return date.getFullYear() === now.getFullYear();
       }
       return false;
-    });
+    };
 
-    const grossProfit = filtered.reduce((sum, t) => sum + t.totalBelanja, 0);
-    const totalModal = filtered.reduce(
+    const filteredTx = allTransactions.filter(
+      (t) => t.timestamp && filterByPeriod(t.timestamp.toDate())
+    );
+    const filteredEx = allExpenses.filter(
+      (e) => e.timestamp && filterByPeriod(e.timestamp.toDate())
+    );
+
+    const grossProfit = filteredTx.reduce((sum, t) => sum + t.totalBelanja, 0);
+    const totalModal = filteredTx.reduce(
       (sum, t) => sum + (t.totalModal || 0),
       0
     );
-    const netProfit = grossProfit - totalModal;
-    const cashTotal = filtered
+    const totalExpenses = filteredEx.reduce((sum, e) => sum + e.amount, 0);
+    const netProfit = grossProfit - totalModal - totalExpenses;
+
+    const cashTotal = filteredTx
       .filter((t) => t.paymentMethod === "cash")
       .reduce((sum, t) => sum + t.totalBelanja, 0);
-    const qrisTotal = filtered
+    const qrisTotal = filteredTx
       .filter((t) => t.paymentMethod === "qris")
       .reduce((sum, t) => sum + t.totalBelanja, 0);
-    const hutangTotal = filtered
+    const hutangTotal = filteredTx
       .filter((t) => t.paymentMethod === "hutang")
       .reduce((sum, t) => sum + t.totalBelanja, 0);
 
@@ -136,7 +156,7 @@ function RecapPage() {
       string,
       { totalQuantity: number; totalRevenue: number }
     >();
-    filtered.forEach((transaction) => {
+    filteredTx.forEach((transaction) => {
       if (transaction.items) {
         transaction.items.forEach((item) => {
           const current = productSales.get(item.namaProduk) || {
@@ -159,17 +179,20 @@ function RecapPage() {
       .sort((a, b) => b.totalQuantity - a.totalQuantity);
 
     return {
-      filteredTransactions: filtered,
+      filteredTransactions: filteredTx,
+      filteredExpenses: filteredEx,
       grossProfit,
       totalModal,
+      totalExpenses,
       netProfit,
       cashTotal,
       qrisTotal,
       hutangTotal,
       aggregatedProducts,
     };
-  }, [allTransactions, filter, selectedDate]);
+  }, [allTransactions, allExpenses, filter, selectedDate]);
 
+  // --- DATA PAGINASI UNTUK TABEL ---
   const paginatedTxData = useMemo(() => {
     const start = txPageIndex * txPageSize;
     const end = start + txPageSize;
@@ -182,7 +205,13 @@ function RecapPage() {
     return aggregatedProducts.slice(start, end);
   }, [aggregatedProducts, productPageIndex, productPageSize]);
 
-  // --- KONFIGURASI TABEL TRANSAKSI (DENGAN FITUR COLLAPSE) ---
+  const paginatedExpenseData = useMemo(() => {
+    const start = expensePageIndex * expensePageSize;
+    const end = start + expensePageSize;
+    return filteredExpenses.slice(start, end);
+  }, [filteredExpenses, expensePageIndex, expensePageSize]);
+
+  // --- KONFIGURASI TABEL ---
   const txColumns = useMemo<ColumnDef<Transaction>[]>(
     () => [
       {
@@ -267,7 +296,7 @@ function RecapPage() {
       },
     ],
     [expandedRows]
-  ); // Tambahkan expandedRows sebagai dependency
+  );
 
   const txTable = useReactTable({
     data: paginatedTxData,
@@ -279,7 +308,6 @@ function RecapPage() {
     manualPagination: true,
   });
 
-  // --- KONFIGURASI TABEL PRODUK TERJUAL ---
   const productColumns = useMemo<ColumnDef<AggregatedProduct>[]>(
     () => [
       { accessorKey: "namaProduk", header: "Nama Produk" },
@@ -309,27 +337,67 @@ function RecapPage() {
     manualPagination: true,
   });
 
-  // --- FUNGSI HANDLER ---
+  const expenseColumns = useMemo<ColumnDef<Expense>[]>(
+    () => [
+      {
+        accessorKey: "timestamp",
+        header: "Waktu",
+        cell: (info) =>
+          info
+            .getValue<Timestamp>()
+            .toDate()
+            .toLocaleString("id-ID", {
+              day: "2-digit",
+              month: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+      },
+      { accessorKey: "description", header: "Keterangan" },
+      {
+        accessorKey: "amount",
+        header: "Jumlah",
+        cell: (info) => `Rp ${info.getValue<number>().toLocaleString("id-ID")}`,
+      },
+    ],
+    []
+  );
+
+  const expenseTable = useReactTable({
+    data: paginatedExpenseData,
+    columns: expenseColumns,
+    pageCount: Math.ceil(filteredExpenses.length / expensePageSize),
+    state: {
+      pagination: { pageIndex: expensePageIndex, pageSize: expensePageSize },
+    },
+    onPaginationChange: setExpensePagination,
+    getCoreRowModel: getCoreRowModel(),
+    manualPagination: true,
+  });
+
+  // --- FUNGSI HANDLER (DENGAN PERBAIKAN) ---
   const handleFilterTypeChange = (
     newFilter: "daily" | "monthly" | "yearly"
   ) => {
     setFilter(newFilter);
+    // Reset pagination setiap kali tipe filter diubah
     setTxPagination((prev) => ({ ...prev, pageIndex: 0 }));
     setProductPagination((prev) => ({ ...prev, pageIndex: 0 }));
+    setExpensePagination((prev) => ({ ...prev, pageIndex: 0 }));
   };
-
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const dateString = e.target.value;
     if (dateString) {
       const localDate = new Date(dateString.replace(/-/g, "/"));
       setSelectedDate(localDate);
+      // Reset pagination setiap kali tanggal diubah
       setTxPagination((prev) => ({ ...prev, pageIndex: 0 }));
       setProductPagination((prev) => ({ ...prev, pageIndex: 0 }));
+      setExpensePagination((prev) => ({ ...prev, pageIndex: 0 }));
     }
   };
-
   const handleExport = () => {
-    if (filteredTransactions.length === 0) {
+    if (filteredTransactions.length === 0 && filteredExpenses.length === 0) {
       Swal.fire({
         icon: "info",
         title: "Info",
@@ -337,85 +405,110 @@ function RecapPage() {
       });
       return;
     }
-    interface SummaryRow {
-      "Waktu Transaksi": string;
-      "Metode Pembayaran": string;
-      "Item Dibeli (Qty)": string;
-      "Total Penjualan (Kotor)": number;
-      "Total Modal": number;
-      "Laba Bersih": number;
-      "Total Item": number;
-    }
-    const transactionSummaryData: SummaryRow[] = filteredTransactions.map(
-      (t) => ({
-        "Waktu Transaksi": t.timestamp
-          .toDate()
-          .toLocaleString("id-ID", {
-            year: "numeric",
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-        "Metode Pembayaran": t.paymentMethod.toUpperCase(),
-        "Item Dibeli (Qty)": t.items
-          .map((item) => `${item.namaProduk} (${item.quantity})`)
-          .join(", "),
-        "Total Penjualan (Kotor)": t.totalBelanja,
-        "Total Modal": t.totalModal || 0,
-        "Laba Bersih": t.totalBelanja - (t.totalModal || 0),
-        "Total Item": t.items.reduce((sum, item) => sum + item.quantity, 0),
-      })
-    );
-    const allItemsData = filteredTransactions.flatMap((t) =>
-      t.items.map((item) => ({
-        "Waktu Transaksi": t.timestamp
-          .toDate()
-          .toLocaleString("id-ID", {
-            year: "numeric",
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-        "Metode Pembayaran": t.paymentMethod.toUpperCase(),
-        "Nama Produk": item.namaProduk,
-        Kuantitas: item.quantity,
-        "Harga Jual Satuan": item.hargaSatuan,
-        "Harga Modal Satuan": item.hargaModal || 0,
-      }))
-    );
-    transactionSummaryData.push({
-      "Waktu Transaksi": "TOTAL",
-      "Metode Pembayaran": "",
-      "Item Dibeli (Qty)": "",
-      "Total Penjualan (Kotor)": grossProfit,
-      "Total Modal": totalModal,
-      "Laba Bersih": netProfit,
-      "Total Item": allItemsData.reduce((sum, item) => sum + item.Kuantitas, 0),
-    });
-    const wsSummary = XLSX.utils.json_to_sheet(transactionSummaryData);
-    const wsItems = XLSX.utils.json_to_sheet(allItemsData);
-    wsSummary["!cols"] = [
-      { wch: 20 },
-      { wch: 18 },
-      { wch: 50 },
-      { wch: 20 },
-      { wch: 20 },
-      { wch: 20 },
-      { wch: 15 },
-    ];
-    wsItems["!cols"] = [
-      { wch: 20 },
-      { wch: 18 },
-      { wch: 30 },
-      { wch: 10 },
-      { wch: 20 },
-      { wch: 20 },
-    ];
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, wsSummary, "Ringkasan Transaksi");
-    XLSX.utils.book_append_sheet(wb, wsItems, "Detail Item Terjual");
+
+    // Sheet 1: Ringkasan Transaksi
+    if (filteredTransactions.length > 0) {
+      interface SummaryRow {
+        "Waktu Transaksi": string;
+        "Metode Pembayaran": string;
+        "Item Dibeli (Qty)": string;
+        "Total Penjualan (Kotor)": number;
+        "Total Modal": number;
+        "Laba Bersih": number;
+        "Total Item": number;
+      }
+      const transactionSummaryData: SummaryRow[] = filteredTransactions.map(
+        (t) => ({
+          "Waktu Transaksi": t.timestamp
+            .toDate()
+            .toLocaleString("id-ID", {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+          "Metode Pembayaran": t.paymentMethod.toUpperCase(),
+          "Item Dibeli (Qty)": t.items
+            .map((item) => `${item.namaProduk} (${item.quantity})`)
+            .join(", "),
+          "Total Penjualan (Kotor)": t.totalBelanja,
+          "Total Modal": t.totalModal || 0,
+          "Laba Bersih": t.totalBelanja - (t.totalModal || 0),
+          "Total Item": t.items.reduce((sum, item) => sum + item.quantity, 0),
+        })
+      );
+      const allItemsData = filteredTransactions.flatMap((t) =>
+        t.items.map((item) => ({
+          "Waktu Transaksi": t.timestamp
+            .toDate()
+            .toLocaleString("id-ID", {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+          "Metode Pembayaran": t.paymentMethod.toUpperCase(),
+          "Nama Produk": item.namaProduk,
+          Kuantitas: item.quantity,
+          "Harga Jual Satuan": item.hargaSatuan,
+          "Harga Modal Satuan": item.hargaModal || 0,
+        }))
+      );
+      transactionSummaryData.push({
+        "Waktu Transaksi": "TOTAL",
+        "Metode Pembayaran": "",
+        "Item Dibeli (Qty)": "",
+        "Total Penjualan (Kotor)": grossProfit,
+        "Total Modal": totalModal,
+        "Laba Bersih": netProfit + totalExpenses,
+        "Total Item": allItemsData.reduce(
+          (sum, item) => sum + item.Kuantitas,
+          0
+        ),
+      });
+      const wsSummary = XLSX.utils.json_to_sheet(transactionSummaryData);
+      wsSummary["!cols"] = [
+        { wch: 20 },
+        { wch: 18 },
+        { wch: 50 },
+        { wch: 20 },
+        { wch: 20 },
+        { wch: 20 },
+        { wch: 15 },
+      ];
+      XLSX.utils.book_append_sheet(wb, wsSummary, "Ringkasan Transaksi");
+      const wsItems = XLSX.utils.json_to_sheet(allItemsData);
+      wsItems["!cols"] = [
+        { wch: 20 },
+        { wch: 18 },
+        { wch: 30 },
+        { wch: 10 },
+        { wch: 20 },
+        { wch: 20 },
+      ];
+      XLSX.utils.book_append_sheet(wb, wsItems, "Detail Item Terjual");
+    }
+
+    // Sheet 3: Pengeluaran
+    if (filteredExpenses.length > 0) {
+      const expenseData = filteredExpenses.map((e) => ({
+        Waktu: e.timestamp.toDate().toLocaleString("id-ID"),
+        Keterangan: e.description,
+        Jumlah: e.amount,
+      }));
+      expenseData.push({
+        Waktu: "TOTAL",
+        Keterangan: "",
+        Jumlah: totalExpenses,
+      });
+      const wsExpenses = XLSX.utils.json_to_sheet(expenseData);
+      wsExpenses["!cols"] = [{ wch: 20 }, { wch: 40 }, { wch: 20 }];
+      XLSX.utils.book_append_sheet(wb, wsExpenses, "Pengeluaran");
+    }
+
     const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
     const data = new Blob([excelBuffer], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=UTF-8",
@@ -465,7 +558,9 @@ function RecapPage() {
         </div>
         <button
           onClick={handleExport}
-          disabled={filteredTransactions.length === 0}
+          disabled={
+            filteredTransactions.length === 0 && filteredExpenses.length === 0
+          }
           className="bg-emerald-600 text-white font-bold py-2 px-4 rounded hover:bg-emerald-700 disabled:bg-gray-400"
         >
           Download Excel
@@ -497,13 +592,19 @@ function RecapPage() {
         </div>
       </div>
       <h2 className="text-xl font-semibold mb-4 text-gray-700">
-        Ringkasan Profit
+        Ringkasan Profit & Pengeluaran
       </h2>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <div className="bg-gray-100 p-6 rounded-lg shadow-lg">
           <p className="font-semibold text-gray-800">Laba Kotor</p>
           <p className="text-3xl font-bold mt-2 text-gray-900">
             Rp {grossProfit.toLocaleString("id-ID")}
+          </p>
+        </div>
+        <div className="bg-orange-100 border-l-4 border-orange-500 p-6 rounded-lg shadow-lg">
+          <p className="font-semibold text-orange-800">Total Pengeluaran</p>
+          <p className="text-3xl font-bold mt-2 text-orange-900">
+            Rp {totalExpenses.toLocaleString("id-ID")}
           </p>
         </div>
         <div className="bg-red-100 p-6 rounded-lg shadow-lg">
@@ -520,8 +621,8 @@ function RecapPage() {
         </div>
       </div>
 
-      {/* --- Dua Tabel Berdampingan --- */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      {/* --- Tiga Tabel Berdampingan --- */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* --- Tabel Detail Transaksi --- */}
         <div>
           <h2 className="text-2xl font-bold mb-4">Detail Transaksi</h2>
@@ -672,6 +773,87 @@ function RecapPage() {
                 productTable.setPageIndex(productTable.getPageCount() - 1)
               }
               disabled={!productTable.getCanNextPage()}
+              className="p-2 border rounded"
+            >
+              {">>"}
+            </button>
+          </div>
+        </div>
+
+        {/* --- Tabel Detail Pengeluaran --- */}
+        <div>
+          <h2 className="text-2xl font-bold mb-4">Detail Pengeluaran</h2>
+          <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+            <table className="w-full text-sm text-left text-gray-700">
+              <thead className="text-xs text-gray-700 uppercase bg-gray-100">
+                {expenseTable.getHeaderGroups().map((hg) => (
+                  <tr key={hg.id}>
+                    {hg.headers.map((h) => (
+                      <th key={h.id} className="px-6 py-3">
+                        {flexRender(h.column.columnDef.header, h.getContext())}
+                      </th>
+                    ))}
+                  </tr>
+                ))}
+              </thead>
+              <tbody>
+                {expenseTable.getRowModel().rows.length > 0 ? (
+                  expenseTable.getRowModel().rows.map((row) => (
+                    <tr key={row.id} className="border-b hover:bg-gray-50">
+                      {row.getVisibleCells().map((cell) => (
+                        <td key={cell.id} className="px-6 py-4">
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td
+                      colSpan={expenseColumns.length}
+                      className="text-center p-6"
+                    >
+                      Tidak ada data.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center justify-center gap-2 mt-4">
+            <button
+              onClick={() => expenseTable.setPageIndex(0)}
+              disabled={!expenseTable.getCanPreviousPage()}
+              className="p-2 border rounded"
+            >
+              {"<<"}
+            </button>
+            <button
+              onClick={() => expenseTable.previousPage()}
+              disabled={!expenseTable.getCanPreviousPage()}
+              className="p-2 border rounded"
+            >
+              {"<"}
+            </button>
+            <span className="gap-1">
+              Hal <strong>{expensePageIndex + 1}</strong> dari{" "}
+              <strong>{expenseTable.getPageCount()}</strong>
+            </span>
+            <button
+              onClick={() => expenseTable.nextPage()}
+              disabled={!expenseTable.getCanNextPage()}
+              className="p-2 border rounded"
+            >
+              {">"}
+            </button>
+            <button
+              onClick={() =>
+                expenseTable.setPageIndex(expenseTable.getPageCount() - 1)
+              }
+              disabled={!expenseTable.getCanNextPage()}
               className="p-2 border rounded"
             >
               {">>"}

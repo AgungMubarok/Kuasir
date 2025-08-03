@@ -60,13 +60,13 @@ export default function ProductDataTable({
         const endFilterText = globalFilter + "\uf8ff";
         productQuery = query(
           productQuery,
-          where("namaProduk", ">=", globalFilter),
-          where("namaProduk", "<=", endFilterText)
+          where("namaProduk_lowercase", ">=", globalFilter),
+          where("namaProduk_lowercase", "<=", endFilterText)
         );
         countQuery = query(
           countQuery,
-          where("namaProduk", ">=", globalFilter),
-          where("namaProduk", "<=", endFilterText)
+          where("namaProduk_lowercase", ">=", globalFilter),
+          where("namaProduk_lowercase", "<=", endFilterText)
         );
       }
 
@@ -88,7 +88,10 @@ export default function ProductDataTable({
           orderBy(sortConfig.id, sortConfig.desc ? "desc" : "asc")
         );
       } else {
-        productQuery = query(productQuery, orderBy("namaProduk", "asc"));
+        productQuery = query(
+          productQuery,
+          orderBy("namaProduk_lowercase", "asc")
+        );
       }
 
       // 3. Terapkan Pagination (Server-Side)
@@ -150,7 +153,7 @@ export default function ProductDataTable({
       <div className="flex justify-between items-center mb-4">
         <input
           type="text"
-          onChange={(e) => setGlobalFilter(e.target.value)}
+          onChange={(e) => setGlobalFilter(e.target.value.toLowerCase())}
           placeholder="Cari produk..."
           className="p-2 border border-gray-300 rounded-md w-full md:w-1/2"
         />

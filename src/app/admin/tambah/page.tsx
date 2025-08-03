@@ -27,6 +27,7 @@ function TambahProdukPage() {
         namaProduk,
         hargaJual: Number(hargaJual),
         hargaModal: Number(hargaModal),
+        namaProduk_lowercase: namaProduk.toLowerCase(),
       });
       setNamaProduk("");
       setHargaJual("");
