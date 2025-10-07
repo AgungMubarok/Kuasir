@@ -40,7 +40,7 @@ export default function Cart({ cart, onUpdateCart }: CartProps) {
     onUpdateCart(newCart);
   };
 
-  const handleCheckout = async (paymentMethod: "cash" | "qris" | "hutang") => {
+  const handleCheckout = async (paymentMethod: "cash" | "qris") => {
     if (cart.length === 0) return;
     closeModal();
 
@@ -52,6 +52,31 @@ export default function Cart({ cart, onUpdateCart }: CartProps) {
       (sum, item) => sum + item.hargaModal * item.quantity,
       0
     );
+
+    const result = await Swal.fire({
+      title: "Konfirmasi Pembayaran",
+      html: `
+        <p>Metode: <b>${paymentMethod.toUpperCase()}</b></p>
+        <p>Total Belanja: <b>Rp ${totalBelanja.toLocaleString("id-ID")}</b></p>
+        <p>Yakin ingin melanjutkan transaksi ini?</p>
+      `,
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonText: "Ya, simpan transaksi",
+      cancelButtonText: "Batal",
+      reverseButtons: true,
+    });
+
+    if (!result.isConfirmed) {
+      Swal.fire({
+        icon: "info",
+        title: "Dibatalkan",
+        text: "Transaksi dibatalkan.",
+        timer: 1500,
+        showConfirmButton: false,
+      });
+      return;
+    }
 
     const transactionData = {
       timestamp: serverTimestamp(),
@@ -176,12 +201,6 @@ export default function Cart({ cart, onUpdateCart }: CartProps) {
             className="w-full py-3 px-4 bg-purple-600 text-white font-semibold rounded-md shadow-sm hover:bg-purple-700"
           >
             Bayar QRIS
-          </button>
-          <button
-            onClick={() => handleCheckout("hutang")}
-            className="w-full py-3 px-4 bg-yellow-600 text-white font-semibold rounded-md shadow-sm hover:bg-yellow-700"
-          >
-            Hutang
           </button>
         </div>
         <button

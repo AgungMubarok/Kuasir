@@ -28,7 +28,7 @@ interface Transaction {
   totalModal: number;
   timestamp: Timestamp;
   items: TransactionItem[];
-  paymentMethod: "cash" | "qris" | "hutang";
+  paymentMethod: "cash" | "qris";
 }
 interface AggregatedProduct {
   namaProduk: string;
@@ -101,7 +101,6 @@ function RecapPage() {
     netProfit,
     cashTotal,
     qrisTotal,
-    hutangTotal,
     aggregatedProducts,
   } = useMemo(() => {
     const filterByPeriod = (date: Date) => {
@@ -148,9 +147,6 @@ function RecapPage() {
     const qrisTotal = filteredTx
       .filter((t) => t.paymentMethod === "qris")
       .reduce((sum, t) => sum + t.totalBelanja, 0);
-    const hutangTotal = filteredTx
-      .filter((t) => t.paymentMethod === "hutang")
-      .reduce((sum, t) => sum + t.totalBelanja, 0);
 
     const productSales = new Map<
       string,
@@ -187,7 +183,6 @@ function RecapPage() {
       netProfit,
       cashTotal,
       qrisTotal,
-      hutangTotal,
       aggregatedProducts,
     };
   }, [allTransactions, allExpenses, filter, selectedDate]);
@@ -571,7 +566,7 @@ function RecapPage() {
       <h2 className="text-xl font-semibold mb-4 text-gray-700">
         Ringkasan Metode Pembayaran
       </h2>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         <div className="bg-blue-100 border-l-4 border-blue-500 p-6 rounded-lg shadow-lg">
           <p className="font-semibold text-blue-800">Total Cash</p>
           <p className="text-3xl font-bold mt-2 text-blue-900">
@@ -582,12 +577,6 @@ function RecapPage() {
           <p className="font-semibold text-purple-800">Total QRIS</p>
           <p className="text-3xl font-bold mt-2 text-purple-900">
             Rp {qrisTotal.toLocaleString("id-ID")}
-          </p>
-        </div>
-        <div className="bg-yellow-100 border-l-4 border-yellow-500 p-6 rounded-lg shadow-lg">
-          <p className="font-semibold text-yellow-800">Total Hutang</p>
-          <p className="text-3xl font-bold mt-2 text-yellow-900">
-            Rp {hutangTotal.toLocaleString("id-ID")}
           </p>
         </div>
       </div>
